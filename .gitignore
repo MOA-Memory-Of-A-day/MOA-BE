@@ -1,0 +1,51 @@
+# 환경 변수
+.env
+
+# key file / 인증서
+*.pem
+*.key
+*.crt
+
+# Node.js modules
+node_modules/
+
+# MongoDB 관련 데이터 파일
+*.mongodb/
+
+# 로그
+logs/
+*.log
+
+# npm 패키지 잠금 파일
+package-lock.json
+
+# 개인적인 설정 및 임시 파일
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# npm Global 설치 패키지
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# MacOS 
+Icon?
+
+# 빌드 산출물
+build/
+dist/
+
+# 운영체제
+Thumbs.db
+.DS_Store
+
+# IDE/에디터 관련 파일들
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
