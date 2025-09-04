@@ -1,42 +1,18 @@
+// server.js
 require('dotenv').config();
-const { OAuth2Client } = require("google-auth-library");
-const cors =require('cors');
 const express = require('express');
+const cors = require('cors');
+
 const app = express();
-
-// const errorHandler = require('./middlewares/errorHandler');
-
 app.use(cors());
 app.use(express.json());
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const client = new OAuth2Client(CLIENT_ID);
+app.get('/', (_req, res) => res.send('Hello World'));  // 헬스체크
 
-let connectDB = require('./database');
-let db;
+// ✅ 라우터 연결: 이 파일만 불러오면 됨
+app.use('/auth', require('./routes/auth'));
 
-
-connectDB.then((client) => {
-    db = client.db(process.env.DB_NAME)
-    console.log('Database connected');
-    app.listen(process.env.PORT,()=>{
-        console.log('Server is running');
-    })
-}).catch((e) => {
-    console.log('Error starting server:', e);
-})
-
-
-
-
-
-
-app.get('/',(req,res)=>{res.send('Hello World');})
-
-app.use('/auth',require('./routes/auth.js'));
-// app.use('/subject',require('./routes/subject.js'));
-// app.use('/task',require('./routes/task.js'));
-
-
-
-// app.use(errorHandler);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on http://localhost:${PORT}`);
+});
