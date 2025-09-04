@@ -1,16 +1,20 @@
+const { OAuth2Client } = require('google-auth-library');
 // const bcrypt = require('bcrypt');
 // const jwt = require('jsonwebtoken');
-const connectDB = require('../database');
-const { ObjectId } = require('mongodb');
+// const connectDB = require('../database');
+// const { ObjectId } = require('mongodb');
 
-let db;
-connectDB.then((client) => {
-    db = client.db(process.env.DB_NAME); 
-}).catch((err) => {
-    console.error("Database connection failed:", err);
-    throw { status: 500, message: "Database connection failed" };
-});
+// let db;
+// connectDB.then((client) => {
+//     db = client.db(process.env.DB_NAME); 
+// }).catch((err) => {
+//     console.error("Database connection failed:", err);
+//     throw { status: 500, message: "Database connection failed" };
+// });
 
+
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const client = new OAuth2Client(CLIENT_ID);
 
 // exports.getUser = async(req, res)=>{
 //     try{
@@ -123,22 +127,32 @@ connectDB.then((client) => {
 //     }
 // };
 
-exports.login = async (req, res) => {
+exports.googleLogin = async (req, res) => {
     
-    const {idToken} = req.body;
+    const { idToken } = req.body;
+    if (!idToken) return res.status(400).json({ message: 'idToken required' });
 
     try {
         const ticket = await client.verifyIdToken({
             idToken,
-            audience: CLIENT_ID,
+            audience: CLIENT_ID, // 반드시 웹 클라 ID
         });
-
         const payload = ticket.getPayload();
+        console.log(payload);
+        
+        return res.json({
+            message: 'Google token verified',
+            userid: payload.sub,
+            email: payload.email,
+            name: payload.name,
+            picture: payload.picture,
+            email_verified: payload.email_verified,
+          });
 
-        console.log("payload");
 
     } catch(err) {
-        console.error("토큰 검증 실패")
+        console.error("토큰 검증 실패");
+        return res.status(401).json({ message: 'Invalid Google ID token' });
     }
    
 }
