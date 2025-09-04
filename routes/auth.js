@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 // const authorization = require('../middlewares/authHandler');
-const {getUser, register, login, logout} = require('../controllers/authController')
+const {getUser, register, googleLogin, logout} = require('../controllers/authController')
 
 
 
@@ -12,7 +12,7 @@ const {getUser, register, login, logout} = require('../controllers/authControlle
 // router.post('/login', login);
 // router.post('/logout', logout)
 
-router.post("/google/login", login);
+router.post("/google/login", googleLogin);
 
 
 
