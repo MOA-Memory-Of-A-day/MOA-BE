@@ -8,12 +8,14 @@ app.use(express.json());
 
 
 let connectDB = require('./database');
-let db;
+
 
 
 connectDB.then((client) => {
-    db = client.db(process.env.DB_NAME)
+    const db = client.db(process.env.DB_NAME)
+    app.locals.db = db;
     console.log('Database connected');
+
     app.listen(process.env.PORT,()=>{
         console.log('Server is running');
     })
@@ -23,10 +25,7 @@ connectDB.then((client) => {
 
 
 
-
-
-
-app.get('/',(req,res)=>{res.send('Hello World');})
+app.get('/',(req,res)=>{res.send('MOA server testing');})
 app.use('/auth',require('./routes/auth.js'));
 // app.use('/subject',require('./routes/subject.js'));
 // app.use('/task',require('./routes/task.js'));
