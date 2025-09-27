@@ -1,10 +1,11 @@
 const { OAuth2Client } = require('google-auth-library');
 const { signAccess, signRefresh } = require("../utils/jwt");
 const { pickUser } = require("../utils/user");
+const { ObjectId } = require('mongodb');
 // const bcrypt = require('bcrypt');
 // const jwt = require('jsonwebtoken');
 // const connectDB = require('../database');
-// const { ObjectId } = require('mongodb');
+
 
 
 
@@ -122,6 +123,8 @@ const client = new OAuth2Client(CLIENT_ID);
 //     }
 // };
 
+
+//== 구글 로그인 후 발급받은 토큰 전달
 exports.googleVerify = async (req, res) => {
 
     try {

@@ -27,6 +27,7 @@ connectDB.then((client) => {
 
 app.get('/',(req,res)=>{res.send('MOA server testing');})
 app.use('/auth',require('./routes/auth.js'));
+app.use('/todo',require('./routes/todo.js'));
 // app.use('/subject',require('./routes/subject.js'));
 // app.use('/task',require('./routes/task.js'));
 
