@@ -54,7 +54,7 @@ exports.todoList = async (req, res) => {
             .sort({ date: 1, createdAt: -1 })
             .toArray();
       
-          // 3) 응답 매핑 (id 문자열화)
+          
           return res.status(200).json({
             message: 'todo 목록 불러오기 성공',
             count: todos.length,
