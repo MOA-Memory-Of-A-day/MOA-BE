@@ -7,10 +7,9 @@ const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 }});
 
-// router.post('/create', recordCreate);
 router.post('/create', upload.single('image'), recordCreate);
 router.get('/list', recordList)
-router.patch('/update', recordUpdate);
+router.patch('/update', upload.single('image'), recordUpdate);
 router.delete('/delete', recordDelete);
 
 module.exports = router;
