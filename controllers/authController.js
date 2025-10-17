@@ -2,6 +2,8 @@ const { OAuth2Client } = require('google-auth-library');
 const { signAccess, signRefresh } = require("../utils/jwt");
 const { pickUser } = require("../utils/user");
 const { ObjectId } = require('mongodb');
+const crypto = require('crypto');
+
 
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -19,17 +21,18 @@ exports.googleVerify = async (req, res) => {
         const db = req.app.locals.db;
         const { code } = req.body;
         if (!code) return res.status(400).json({ message: 'code required' });
-
+        // console.log(code)
         // auth code → tokens 교환
         const { tokens } = await oauthClient.getToken(code);
         if (!tokens.id_token) return res.status(401).json({ message: 'no id_token from Google' });
-        
+        // console.log(tokens)
         // id_token 검증
         const ticket = await oauthClient.verifyIdToken({
         idToken: tokens.id_token,
         audience: GOOGLE_CLIENT_ID,
         });
         const payload = ticket.getPayload();
+        // console.log('id_token aud:', payload.aud);
 
         //  DB에서 사용자 조회
         const user = await db.collection('users').findOne({provider : 'google', providerID : payload.sub})
@@ -106,6 +109,78 @@ exports.googleRefresh = async (req,res) => {
         return res.status(401).json({ message: 'invalid or expired idToken' });
     }
 }
+
+
+/**
+ * 개발/테스트 전용 로그인
+ * 헤더: X-Dev-Secret: {DEV_LOGIN_SECRET}
+ * 바디: { email?, nickname?, role? }  (원하는 필드 몇 개만)
+ * - 해당 유저가 없으면 provider='dev' 로 생성
+ * - 있으면 그대로 사용
+ * - access/refresh 토큰 발급
+ */
+exports.devLogin = async (req, res) => {
+    try {
+      // 안전장치 1: 프로덕션 차단
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(403).json({ message: 'dev login disabled in production' });
+      }
+  
+      // 안전장치 2: 비밀키 검사
+      const secret = req.header('X-Dev-Secret');
+      if (!secret || secret !== process.env.DEV_LOGIN_SECRET) {
+        return res.status(401).json({ message: 'invalid dev secret' });
+      }
+  
+      const db = req.app.locals.db;
+      const { email, nickname, role } = req.body || {};
+  
+      // 최소 식별값 보장: email 없으면 더미 생성
+      const safeEmail = (email && String(email).trim()) || `dev_${Date.now()}@example.local`;
+      const safeNickname = (nickname && String(nickname).trim()) || 'Dev User';
+  
+      // providerID 는 불변 식별자로 쓰자 (이메일 기반 or 랜덤)
+      const providerID = `dev_${crypto.createHash('sha256').update(safeEmail).digest('hex').slice(0, 24)}`;
+  
+      // 찾거나 만들기
+      let user = await db.collection('users').findOne({ provider: 'dev', providerID });
+      if (!user) {
+        const now = new Date();
+        const newUserInfo = {
+          provider: 'dev',
+          providerID,
+          email: safeEmail,
+          name: null,
+          picture: null,
+          nickname: safeNickname,
+          role: role ?? 'tester',     // 선택
+          createdAt: now,
+          updatedAt: now,
+          lastLoginAt: now,
+        };
+        const result = await db.collection('users').insertOne(newUserInfo);
+        user = { ...newUserInfo, _id: result.insertedId };
+      } else {
+        // 접속 로그만 업데이트
+        await db.collection('users').updateOne(
+          { _id: user._id },
+          { $set: { lastLoginAt: new Date() } }
+        );
+      }
+  
+      const accessToken = signAccess(user);
+      const refreshToken = signRefresh(user);
+      return res.status(200).json({
+        status: 'login',
+        accessToken,
+        refreshToken,
+        user: pickUser(user),
+      });
+    } catch (err) {
+      console.error('devLogin failed:', err);
+      return res.status(500).json({ message: 'server error' });
+    }
+  };
 
 exports.logout = async (req,res) => {
     return res.status(200).json({ message: '로그아웃 되었습니다.' });

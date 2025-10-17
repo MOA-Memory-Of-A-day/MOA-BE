@@ -88,6 +88,87 @@ exports.recordCreate = async (req, res) => {
   }
 };
 
+exports.recordVoice = async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization Bearer token required' });
+    }
+    const accessToken = authHeader.split(' ')[1];
+    const payload = jwt.verify(accessToken, process.env.JWT_ACCESS_SECRET);
+    const userId = payload.uid;
+    if (!userId) return res.status(401).json({ message: 'token has no user id' });
+
+
+    // - multipart/form-data 로 `voice` 파일
+    if (!req.file) {
+      return res.status(400).json({ message: 'voice file is required (field: voice)' });
+    }
+
+    
+    const allowed = [
+      'audio/mpeg', 'audio/mp3',
+      'audio/wav', 'audio/x-wav',
+      'audio/aac', 'audio/x-m4a', 'audio/m4a',
+      'audio/ogg', 'audio/webm',
+    ];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ message: 'unsupported audio type' });
+    }
+
+    // S3 Key 생성 및 업로드
+    const ext = mime.extension(req.file.mimetype) || 'bin';
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const key = `records/${userId}/${y}/${m}/voice_${uuid}.${ext}`;
+
+    await uploadBufferToS3({
+      buffer: req.file.buffer,
+      key,
+      contentType: req.file.mimetype,
+    });
+
+    
+    const doc = {
+      userId: new ObjectId(userId),
+      type: hasText ? 'voice+text' : 'voice',
+      context: hasText ? context : null,
+      media: {
+        type: 'audio',
+        bucket: process.env.AWS_S3_BUCKET,
+        key,
+        mime: req.file.mimetype,
+        size: req.file.size,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const result = await db.collection('records').insertOne(doc);
+
+    // presigned URL 생성
+    const audioUrl = await getSignedReadUrl(key);
+
+    return res.status(201).json({
+      message: 'voice record created',
+      record: {
+        id: result.insertedId.toString(),
+        type: doc.type,
+        context: doc.context,
+        audioUrl,        
+        createdAt: doc.createdAt,
+      },
+    });
+  } catch (err) {
+    console.error('recordVoiceCreate failed:', err);
+    return res.status(500).json({ message: 'server error' });
+  }
+};
+
 exports.recordList = async (req, res) => {
   try {
     const db = req.app.locals.db;
