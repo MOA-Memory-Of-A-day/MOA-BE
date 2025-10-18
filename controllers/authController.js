@@ -12,54 +12,146 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const oauthClient = new OAuth2Client(
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
-    ''  
+    'postmessage'  
   );
 
-exports.googleVerify = async (req, res) => {
+// exports.googleVerify = async (req, res) => {
 
+//     try {
+//         const db = req.app.locals.db;
+//         const { code } = req.body;
+//         if (!code) return res.status(400).json({ message: 'code required' });
+//         // console.log(code)
+//         // auth code → tokens 교환
+//         const { tokens } = await oauthClient.getToken(code);
+//         if (!tokens.id_token) return res.status(401).json({ message: 'no id_token from Google' });
+//         // console.log(tokens)
+//         // id_token 검증
+//         const ticket = await oauthClient.verifyIdToken({
+//         idToken: tokens.id_token,
+//         audience: GOOGLE_CLIENT_ID,
+//         });
+//         const payload = ticket.getPayload();
+//         // console.log('id_token aud:', payload.aud);
+
+//         //  DB에서 사용자 조회
+//         const user = await db.collection('users').findOne({provider : 'google', providerID : payload.sub})
+        
+//         //신규 가입 유도 -> status 및 google token 내부 고유ID 반환
+//         if(!user) return res.status(200).json({
+//             status : 'need-signup', 
+//             prefill: {email: payload.email ?? null, name: payload.name ?? null, picture: payload.picture ?? null}, 
+//             hint : {provider: 'google', providerID: payload.sub }
+//         });
+        
+//         //기존 가입자 -> access token 발급
+//         const accessToken = signAccess(user)
+//         const refreshToken = signRefresh(user)
+//         await db.collection('users').updateOne(
+//             { _id: user._id },
+//             { $set: { lastLoginAt: new Date() } }
+//           );
+
+//         return res.json({ status: "login", accessToken, refreshToken, user: pickUser(user) });
+
+
+//     } catch(err) {
+//         console.error("토큰 검증 실패");
+//         return res.status(401).json({ message: 'Invalid Google ID token' });
+//     }
+// }
+
+exports.googleVerify = async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ message: 'code required' });
+    }
+
+    let tokens;
     try {
-        const db = req.app.locals.db;
-        const { code } = req.body;
-        if (!code) return res.status(400).json({ message: 'code required' });
-        // console.log(code)
-        // auth code → tokens 교환
-        const { tokens } = await oauthClient.getToken(code);
-        if (!tokens.id_token) return res.status(401).json({ message: 'no id_token from Google' });
-        // console.log(tokens)
-        // id_token 검증
-        const ticket = await oauthClient.verifyIdToken({
+      // ✅ Auth code → tokens 교환 시도
+      tokens = (await oauthClient.getToken(code)).tokens;
+      if (!tokens.id_token) {
+        console.error('[DEBUG] getToken success but no id_token:', tokens);
+        return res.status(401).json({ message: 'no id_token from Google' });
+      }
+    } catch (err) {
+      // ✅ getToken 단계에서 발생한 에러 디버그
+      const detail = err?.response?.data || err?.message || err;
+      console.error('[DEBUG] getToken() failed:', detail);
+      return res.status(401).json({
+        message: 'Google token exchange failed',
+        detail,
+      });
+    }
+
+    // ✅ id_token 검증
+    let ticket;
+    try {
+      ticket = await oauthClient.verifyIdToken({
         idToken: tokens.id_token,
         audience: GOOGLE_CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-        // console.log('id_token aud:', payload.aud);
-
-        //  DB에서 사용자 조회
-        const user = await db.collection('users').findOne({provider : 'google', providerID : payload.sub})
-        
-        //신규 가입 유도 -> status 및 google token 내부 고유ID 반환
-        if(!user) return res.status(200).json({
-            status : 'need-signup', 
-            prefill: {email: payload.email ?? null, name: payload.name ?? null, picture: payload.picture ?? null}, 
-            hint : {provider: 'google', providerID: payload.sub }
-        });
-        
-        //기존 가입자 -> access token 발급
-        const accessToken = signAccess(user)
-        const refreshToken = signRefresh(user)
-        await db.collection('users').updateOne(
-            { _id: user._id },
-            { $set: { lastLoginAt: new Date() } }
-          );
-
-        return res.json({ status: "login", accessToken, refreshToken, user: pickUser(user) });
-
-
-    } catch(err) {
-        console.error("토큰 검증 실패");
-        return res.status(401).json({ message: 'Invalid Google ID token' });
+      });
+    } catch (verifyErr) {
+      console.error('[DEBUG] verifyIdToken() failed:', verifyErr.message);
+      return res.status(401).json({
+        message: 'Invalid Google ID token',
+        detail: verifyErr.message,
+      });
     }
-}
+
+    const payload = ticket.getPayload();
+    console.log('[DEBUG] Google ID Token payload:', {
+      aud: payload.aud,
+      sub: payload.sub,
+      email: payload.email,
+    });
+
+    // ✅ DB에서 사용자 조회
+    const user = await db.collection('users').findOne({
+      provider: 'google',
+      providerID: payload.sub,
+    });
+
+    // 신규가입 유도
+    if (!user) {
+      return res.status(200).json({
+        status: 'need-signup',
+        prefill: {
+          email: payload.email ?? null,
+          name: payload.name ?? null,
+          picture: payload.picture ?? null,
+        },
+        hint: { provider: 'google', providerID: payload.sub },
+      });
+    }
+
+    // 기존 가입자 → 토큰 발급
+    const accessToken = signAccess(user);
+    const refreshToken = signRefresh(user);
+    await db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { lastLoginAt: new Date() } }
+    );
+
+    return res.json({
+      status: 'login',
+      accessToken,
+      refreshToken,
+      user: pickUser(user),
+    });
+
+  } catch (err) {
+    const detail = err?.response?.data || err?.message || String(err);
+    console.error('[DEBUG] googleVerify total failed:', detail);
+    return res.status(500).json({
+      message: 'server error during googleVerify',
+      detail,
+    });
+  }
+};
 
 exports.googleSignUp = async (req, res) => {
 
