@@ -29,6 +29,7 @@ app.get('/',(req,res)=>{res.send('MOA server testing');})
 app.use('/auth',require('./routes/auth.js'));
 app.use('/todo',require('./routes/todo.js'));
 app.use('/record',require('./routes/record.js'));
+app.use('/diary',require('./routes/diary.js'));
 
 
 // app.use(errorHandler);
