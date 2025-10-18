@@ -88,7 +88,7 @@ exports.recordCreate = async (req, res) => {
   }
 };
 
-exports.recordVoice = async (req, res) => {
+exports.recordAudio = async (req, res) => {
   try {
     const db = req.app.locals.db;
 
@@ -102,9 +102,9 @@ exports.recordVoice = async (req, res) => {
     if (!userId) return res.status(401).json({ message: 'token has no user id' });
 
 
-    // - multipart/form-data 로 `voice` 파일
+    // - multipart/form-data 로 `audio` 파일
     if (!req.file) {
-      return res.status(400).json({ message: 'voice file is required (field: voice)' });
+      return res.status(400).json({ message: 'audio file is required (field: audio)' });
     }
 
     
@@ -124,7 +124,7 @@ exports.recordVoice = async (req, res) => {
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
     const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const key = `records/${userId}/${y}/${m}/voice_${uuid}.${ext}`;
+    const key = `records/${userId}/${y}/${m}/audio_${uuid}.${ext}`;
 
     await uploadBufferToS3({
       buffer: req.file.buffer,
@@ -135,8 +135,7 @@ exports.recordVoice = async (req, res) => {
     
     const doc = {
       userId: new ObjectId(userId),
-      type: hasText ? 'voice+text' : 'voice',
-      context: hasText ? context : null,
+      type: 'audio',
       media: {
         type: 'audio',
         bucket: process.env.AWS_S3_BUCKET,
@@ -154,7 +153,7 @@ exports.recordVoice = async (req, res) => {
     const audioUrl = await getSignedReadUrl(key);
 
     return res.status(201).json({
-      message: 'voice record created',
+      message: 'audio record created',
       record: {
         id: result.insertedId.toString(),
         type: doc.type,
@@ -164,7 +163,7 @@ exports.recordVoice = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('recordVoiceCreate failed:', err);
+    console.error('recordaudioCreate failed:', err);
     return res.status(500).json({ message: 'server error' });
   }
 };
@@ -337,44 +336,6 @@ exports.recordUpdate = async (req, res) => {
   }
 };
 
-// exports.recordUpdate = async (req, res) => {
-//     try {
-//         const db = req.app.locals.db;
-//         const authHeader = req.headers.authorization;
-//         if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//             return res.status(400).json({ message: "Authorization Bearer token required" });
-//         }
-//         const accessToken = authHeader.split(" ")[1];
-//         const payload = jwt.verify(accessToken, process.env.JWT_ACCESS_SECRET)
-        
-//         const ownerId = payload.uid
-//         if(!ownerId) return res.status(401).json({ message: 'token has no user id' })
-
-//         const {_id, context } = req.body;
-//         if (!_id) return res.status(400).json({ message: "record _id is required" });
-
-//         const record = await db.collection("records").findOne({ _id: new ObjectId(_id) });
-//         if (!record) return res.status(404).json({ message: "record not found" });
-
-//         if (record.userId.toString() !== ownerId) return res.status(403).json({ message: "수정 권한이 없습니다." });
-
-//         const updateFields = {};
-//         if (context) updateFields.context = context;
-//         // if (date) updateFields.date = date;
-//         if (Object.keys(updateFields).length === 0) 
-//         return res.status(400).json({ message: "수정할 필드를 적어도 하나는 입력해주세요." });
-        
-//         updateFields.updatedAt = new Date();
-        
-//         await db.collection('records').updateOne({_id: new ObjectId(_id)}, {$set: updateFields });
-//         return res.status(200).json({message: 'update 성공'})
-
-        
-//         } catch (err) {
-//         console.error("record update failed:", err);
-//         return res.status(500).json({ message: "server error" });
-//         }   
-// }
 
 
 exports.recordDelete = async (req, res) => {
@@ -416,34 +377,3 @@ exports.recordDelete = async (req, res) => {
     return res.status(500).json({ message: 'server error' });
   }
 };
-
-// exports.recordDelete = async (req, res) => {
-//     try {
-//         const db = req.app.locals.db;
-//         const authHeader = req.headers.authorization;
-//         if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//             return res.status(400).json({ message: "Authorization Bearer token required" });
-//         }
-//         const accessToken = authHeader.split(" ")[1];
-//         const payload = jwt.verify(accessToken, process.env.JWT_ACCESS_SECRET)
-        
-//         const ownerId = payload.uid
-//         if(!ownerId) return res.status(401).json({ message: 'token has no user id' })
-
-//         const {_id} = req.body;
-//         if (!_id) return res.status(400).json({ message: "record _id is required" });
-
-//         const record = await db.collection("records").findOne({ _id: new ObjectId(_id) });
-//         if (!record) return res.status(404).json({ message: "record not found" });
-
-//         if (record.userId.toString() !== ownerId) return res.status(403).json({ message: "수정 권한이 없습니다." });
-        
-//         await db.collection('records').deleteOne({_id: new ObjectId(_id)});
-//         return res.status(200).json({message: 'delete 성공'})
-
-        
-//         } catch (err) {
-//         console.error("record delete failed:", err);
-//         return res.status(500).json({ message: "server error" });
-//         }   
-// }
