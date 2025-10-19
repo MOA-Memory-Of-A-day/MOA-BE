@@ -12,7 +12,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const oauthClient = new OAuth2Client(
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
-    ''  
+    'postmessage'  
   );
 
 // exports.googleVerify = async (req, res) => {
@@ -121,7 +121,7 @@ exports.googleVerify = async (req, res) => {
 
     // 신규가입 유도
     if (!user) {
-      return res.status(200).json({
+      return res.status(202).json({
         status: 'need-signup',
         prefill: {
           email: payload.email ?? null,
