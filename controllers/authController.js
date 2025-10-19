@@ -71,6 +71,9 @@ exports.googleVerify = async (req, res) => {
 
     let tokens;
     try {
+      console.log('[CFG] GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
+      console.log('[CFG] GOOGLE_CLIENT_SECRET set:', !!process.env.GOOGLE_CLIENT_SECRET);
+      
       // ✅ Auth code → tokens 교환 시도
       tokens = (await oauthClient.getToken(code)).tokens;
       if (!tokens.id_token) {
