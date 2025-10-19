@@ -12,7 +12,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const oauthClient = new OAuth2Client(
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
-    'postmessage'  
+    ''  
   );
 
 // exports.googleVerify = async (req, res) => {
@@ -73,6 +73,7 @@ exports.googleVerify = async (req, res) => {
     try {
       console.log('[CFG] GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
       console.log('[CFG] GOOGLE_CLIENT_SECRET set:', !!process.env.GOOGLE_CLIENT_SECRET);
+      console.log('[CFG] oauthClient.redirectUri:', oauthClient.redirectUri);
       
       // ✅ Auth code → tokens 교환 시도
       tokens = (await oauthClient.getToken(code)).tokens;
