@@ -1,4 +1,4 @@
-// controllers/diaryController.js
+   // controllers/diaryController.js
 const axios = require('axios');
 const { ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
@@ -74,7 +74,7 @@ exports.createDiary = async (req, res) => {
       return res.status(502).json({ message: 'AI empty response' });
     }
 
-    // 5) 이미지 URL 리스트(미리보기용) + DB 저장용 키 리스트
+    // 5) imageUrl URL 리스트(미리보기용) + DB 저장용 키 리스트
     const imagePresigned = [];
     const imageKeys = [];
     for (const r of records) {
@@ -207,31 +207,31 @@ exports.listDiaries = async (req, res) => {
           if (!rec) continue;
   
           const item = {
-            작성날짜: rec.createdAt,                 // createdAt (Date)
-            타입: rec.type,                          // 'text' | 'image' | 'text+image' | 'audio'
-            내용: rec.context ?? null,               // text content or null
-            이미지: null,                            // presigned URL or null
-            오디오: null                             // presigned URL or null
+            createdAt: rec.createdAt,                 // createdAt (Date)
+            type: rec.type,                          // 'text' | 'image' | 'text+image' | 'audio'
+            context: rec.context ?? null,               // text content or null
+            imageUrl: null,                            // presigned URL or null
+            audio: null                             // presigned URL or null
           };
   
-          // 이미지 presigned URL
+          // imageUrl presigned URL
           if ((rec.type === 'image' || rec.type === 'text+image') && rec.media?.key) {
             try {
-              const url = await getSignedReadUrl(rec.media.key);
-              item.이미지 = url;
-              images.push({ url, createdAt: rec.createdAt });
+              const imageUrl = await getSignedReadUrl(rec.media.key);
+              item.imageUrl = imageUrl;
+              images.push({ imageUrl, createdAt: rec.createdAt });
             } catch {
-              item.이미지 = null;
+              item.imageUrl = null;
             }
           }
   
-          // 오디오 presigned URL
+          // audio presigned URL
           if (rec.type === 'audio' && rec.media?.key) {
             try {
-              const url = await getSignedReadUrl(rec.media.key);
-              item.오디오 = url;
+              const audioUrl = await getSignedReadUrl(rec.media.key);
+              item.audio = audioUrl;
             } catch {
-              item.오디오 = null;
+              item.audio = null;
             }
           }
   
@@ -239,10 +239,10 @@ exports.listDiaries = async (req, res) => {
         }
   
         return {
-          작성날짜: d.date ?? null,          // 다이어리의 기준 날짜(YYYY-MM-DD)
-          내용: d.text,                      // 생성된 다이어리 본문
-          기록리스트: records,               // 시간 오름차순
-          이미지리스트: images,              // 기록리스트에서 이미지 가진 것만
+          createdAt: d.date ?? null,          // 다이어리의 기준 날짜(YYYY-MM-DD)
+          context: d.text,                      // 생성된 다이어리 본문
+          recordList: records,               // 시간 오름차순
+          imageUrlList: images,              // 기록리스트에서 imageUrl 가진 것만
           emotion: d.emotion ?? null,        // 현재는 null
           meta: {                            // 필요 시 활용(클라이언트 노출 X 가능)
             id: d._id.toString(),
