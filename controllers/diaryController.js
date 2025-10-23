@@ -451,6 +451,7 @@ exports.listDiaries = async (req, res) => {
           date: d.date ?? null,
           createdAt: d.createdAt,
           images: images,
+          emotion: d.emotion
         };
       })
     );
