@@ -1,12 +1,20 @@
 const { ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const { uploadBufferToS3, getSignedReadUrl, deleteFromS3 } = require('../utils/s3');
+const { transcribeAudioBuffer } = require('../utils/stt');
 const mime = require('mime-types');
 
 
 //======= text + image ======
 exports.recordCreate = async (req, res) => {
   try {
+
+    console.log('[upload]', {
+      fieldname: req.file?.fieldname,
+      originalname: req.file?.originalname,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size
+    });
     const db = req.app.locals.db;
 
     const authHeader = req.headers.authorization || '';
@@ -19,48 +27,93 @@ exports.recordCreate = async (req, res) => {
     if (!userId) return res.status(401).json({ message: 'token has no user id' });
 
     
-    const context = (req.body?.context ?? '').trim();
+    let context = (req.body?.context ?? '').trim();
     const hasText = context.length > 0;
+    const file = req.file || null;
     
     let media = null;
-    if (req.file) {
+    let type = 'text';
+    if (file) {
       
-      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-      if (!allowed.includes(req.file.mimetype)) {
-        return res.status(400).json({ message: 'unsupported file type' });
+      const isImage = file.mimetype?.startsWith('image/');
+      const isAudio = file.mimetype?.startsWith('audio/');
+
+
+    if (isImage) {
+      // 이미지 MIME 허용
+      const allowedImg = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+      if (!allowedImg.includes(file.mimetype)) {
+        return res.status(400).json({ message: 'unsupported image type' });
       }
-      // 키 생성: userId/YYYY/MM/uuid.ext
-      const ext = mime.extension(req.file.mimetype) || 'bin';
-      const y = new Date().getFullYear();
-      const m = String(new Date().getMonth() + 1).padStart(2, '0');
+
+      // S3 업로드
+      const ext = mime.extension(file.mimetype) || 'bin';
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
       const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
       const key = `records/${userId}/${y}/${m}/${uuid}.${ext}`;
 
       await uploadBufferToS3({
-        buffer: req.file.buffer,
+        buffer: file.buffer,
         key,
-        contentType: req.file.mimetype,
+        contentType: file.mimetype,
       });
 
       media = {
         type: 'image',
         bucket: process.env.AWS_S3_BUCKET,
-        key,              
-        mime: req.file.mimetype,
-        size: req.file.size,
+        key,
+        mime: file.mimetype,
+        size: file.size,
       };
+
+      // 타입 결정
+      type = hasText ? 'text+image' : 'image';
+    } else if (isAudio) {
+        // 오디오는 S3 저장 안 함 → Whisper로 텍스트 변환
+        const allowedAud = [
+          'audio/mpeg', 'audio/mp3', 'audio/mp4',
+          'audio/wav', 'audio/x-wav',
+          'audio/aac', 'audio/x-m4a', 'audio/m4a',
+          'audio/ogg', 'audio/webm',
+        ];
+        if (!allowedAud.includes(file.mimetype)) {
+          return res.status(400).json({ message: 'unsupported audio type' });
+        }
+
+        // Whisper 호출
+        const filename = `audio.${mime.extension(file.mimetype) || 'bin'}`;
+        const transcript = await transcribeAudioBuffer(file.buffer, filename, 'ko');
+
+        // 기존 입력 텍스트가 있다면 붙여서 저장 (원하면 정책 변경 가능)
+        context = [context, transcript].filter(Boolean).join('\n');
+        if (!context) {
+          return res.status(502).json({ message: 'STT failed: empty transcript' });
+        }
+
+        // 텍스트만 저장
+        media = null;
+        type = 'text';
+      }
+      else {
+        return res.status(400).json({ message: 'unsupported file type' });
+      }
+    } else {
+      // 파일이 없으면 텍스트만
+      if (!hasText) {
+        return res.status(400).json({ message: 'text or file required' });
+      }
+      type = 'text';
     }
 
-    if (!hasText && !media) {
-      return res.status(400).json({ message: 'text or image required' });
-    }
 
     const now = new Date();
     const doc = {
       userId: new ObjectId(userId),
-      type: media && hasText ? 'text+image' : (media ? 'image' : 'text'),
-      context: hasText ? context : null,
-      media, // {type:'image', key:'...', ...} 또는 null
+      type,                    // 'text' | 'image' | 'text+image'
+      context: context || null,
+      media,                   // 이미지인 경우만 객체, 나머지는 null
       createdAt: now,
       updatedAt: now,
     };
@@ -88,85 +141,85 @@ exports.recordCreate = async (req, res) => {
   }
 };
 
-exports.recordAudio = async (req, res) => {
-  try {
-    const db = req.app.locals.db;
+// exports.recordAudio = async (req, res) => {
+//   try {
+//     const db = req.app.locals.db;
 
-    const authHeader = req.headers.authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Authorization Bearer token required' });
-    }
-    const accessToken = authHeader.split(' ')[1];
-    const payload = jwt.verify(accessToken, process.env.JWT_ACCESS_SECRET);
-    const userId = payload.uid;
-    if (!userId) return res.status(401).json({ message: 'token has no user id' });
+//     const authHeader = req.headers.authorization || '';
+//     if (!authHeader.startsWith('Bearer ')) {
+//       return res.status(401).json({ message: 'Authorization Bearer token required' });
+//     }
+//     const accessToken = authHeader.split(' ')[1];
+//     const payload = jwt.verify(accessToken, process.env.JWT_ACCESS_SECRET);
+//     const userId = payload.uid;
+//     if (!userId) return res.status(401).json({ message: 'token has no user id' });
 
 
-    // - multipart/form-data 로 `audio` 파일
-    if (!req.file) {
-      return res.status(400).json({ message: 'audio file is required (field: audio)' });
-    }
-
-    
-    const allowed = [
-      'audio/mpeg', 'audio/mp3',
-      'audio/wav', 'audio/x-wav',
-      'audio/aac', 'audio/x-m4a', 'audio/m4a',
-      'audio/ogg', 'audio/webm',
-    ];
-    if (!allowed.includes(req.file.mimetype)) {
-      return res.status(400).json({ message: 'unsupported audio type' });
-    }
-
-    // S3 Key 생성 및 업로드
-    const ext = mime.extension(req.file.mimetype) || 'bin';
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const key = `records/${userId}/${y}/${m}/audio_${uuid}.${ext}`;
-
-    await uploadBufferToS3({
-      buffer: req.file.buffer,
-      key,
-      contentType: req.file.mimetype,
-    });
+//     // - multipart/form-data 로 `audio` 파일
+//     if (!req.file) {
+//       return res.status(400).json({ message: 'audio file is required (field: audio)' });
+//     }
 
     
-    const doc = {
-      userId: new ObjectId(userId),
-      type: 'audio',
-      media: {
-        type: 'audio',
-        bucket: process.env.AWS_S3_BUCKET,
-        key,
-        mime: req.file.mimetype,
-        size: req.file.size,
-      },
-      createdAt: now,
-      updatedAt: now,
-    };
+//     const allowed = [
+//       'audio/mpeg', 'audio/mp3',
+//       'audio/wav', 'audio/x-wav',
+//       'audio/aac', 'audio/x-m4a', 'audio/m4a',
+//       'audio/ogg', 'audio/webm',
+//     ];
+//     if (!allowed.includes(req.file.mimetype)) {
+//       return res.status(400).json({ message: 'unsupported audio type' });
+//     }
 
-    const result = await db.collection('records').insertOne(doc);
+//     // S3 Key 생성 및 업로드
+//     const ext = mime.extension(req.file.mimetype) || 'bin';
+//     const now = new Date();
+//     const y = now.getFullYear();
+//     const m = String(now.getMonth() + 1).padStart(2, '0');
+//     const uuid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+//     const key = `records/${userId}/${y}/${m}/audio_${uuid}.${ext}`;
 
-    // presigned URL 생성
-    const audioUrl = await getSignedReadUrl(key);
+//     await uploadBufferToS3({
+//       buffer: req.file.buffer,
+//       key,
+//       contentType: req.file.mimetype,
+//     });
 
-    return res.status(201).json({
-      message: 'audio record created',
-      record: {
-        id: result.insertedId.toString(),
-        type: doc.type,
-        context: doc.context,
-        audioUrl,        
-        createdAt: doc.createdAt,
-      },
-    });
-  } catch (err) {
-    console.error('recordaudioCreate failed:', err);
-    return res.status(500).json({ message: 'server error' });
-  }
-};
+    
+//     const doc = {
+//       userId: new ObjectId(userId),
+//       type: 'audio',
+//       media: {
+//         type: 'audio',
+//         bucket: process.env.AWS_S3_BUCKET,
+//         key,
+//         mime: req.file.mimetype,
+//         size: req.file.size,
+//       },
+//       createdAt: now,
+//       updatedAt: now,
+//     };
+
+//     const result = await db.collection('records').insertOne(doc);
+
+//     // presigned URL 생성
+//     const audioUrl = await getSignedReadUrl(key);
+
+//     return res.status(201).json({
+//       message: 'audio record created',
+//       record: {
+//         id: result.insertedId.toString(),
+//         type: doc.type,
+//         context: doc.context,
+//         audioUrl,        
+//         createdAt: doc.createdAt,
+//       },
+//     });
+//   } catch (err) {
+//     console.error('recordaudioCreate failed:', err);
+//     return res.status(500).json({ message: 'server error' });
+//   }
+// };
 
 exports.recordList = async (req, res) => {
   try {
