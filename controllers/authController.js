@@ -134,7 +134,7 @@ exports.googleVerify = async (req, res) => {
 
     // 기존 가입자 → 토큰 발급
     const accessToken = signAccess(user);
-    const refreshToken = signRefresh(user);
+    const refreshToken = await signRefresh(user, req.app.locals.db, { ip: req.ip, userAgent: req.get('User-Agent') });
     await db.collection('users').updateOne(
       { _id: user._id },
       { $set: { lastLoginAt: new Date() } }
@@ -186,7 +186,7 @@ exports.googleSignUp = async (req, res) => {
         const newUser = {...newUserInfo, _id: result.insertedId};
 
         const accessToken = signAccess(newUser)
-        const refreshToken = signRefresh(newUser)
+        const refreshToken = await signRefresh(newUser, req.app.locals.db, { ip: req.ip, userAgent: req.get('User-Agent') });
 
         return res.status(201).json({ status: "registered", accessToken, refreshToken, user: pickUser(newUser) });
     
@@ -198,12 +198,62 @@ exports.googleSignUp = async (req, res) => {
 }
 
 
-exports.googleRefresh = async (req,res) => {
-    try{
-        return res.status(200).json({ message: '미구현 된 기능입니다.'})
-    } catch {
-        return res.status(401).json({ message: 'invalid or expired idToken' });
+exports.refresh = async (req,res) => {
+  try {
+    const db = req.app.locals.db;
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(400).json({ message: 'refreshToken required' });
+
+    console.log('[REFRESH] token(len):', typeof refreshToken, refreshToken && refreshToken.length);
+    console.log('[REFRESH] has secret:', !!process.env.JWT_REFRESH_SECRET);
+
+    // 토큰 내부 확인(서명검증 없음)
+    const decodedLoose = require('jsonwebtoken').decode(refreshToken, { complete: true });
+    console.log('[REFRESH] decoded header:', decodedLoose && decodedLoose.header);
+    console.log('[REFRESH] decoded payload:', decodedLoose && decodedLoose.payload);
+
+    let payload;
+    try {
+      payload = require('jsonwebtoken').verify(
+        refreshToken,
+        process.env.JWT_REFRESH_SECRET,
+        { clockTolerance: 60 } // 60초 허용 (시계 오차 완화)
+      );
+    } catch (err) {
+      console.error('[REFRESH] jwt.verify failed:', err.message);
+      return res.status(401).json({ message: 'invalid or expired refresh token' });
     }
+
+    const { uid, jti } = payload;
+    if (!uid || !jti) {
+      // legacy 토큰 처리 전략 (아래 마이그레이션 섹션 참고)
+      return res.status(401).json({ message: 'unsupported legacy refresh token - re-login required' });
+    }
+
+    // 세션 조회
+    const session = await db.collection('sessions').findOne({ jti });
+    if (!session) return res.status(401).json({ message: 'refresh token not recognized' });
+    if (session.revokedAt) return res.status(401).json({ message: 'refresh token revoked' });
+    if (session.expiresAt && new Date(session.expiresAt) <= new Date()) {
+      return res.status(401).json({ message: 'refresh token expired' });
+    }
+
+    // 회전: 기존 세션 revoke
+    await db.collection('sessions').updateOne({ jti }, { $set: { revokedAt: new Date() } });
+
+    // user 조회
+    const user = await db.collection('users').findOne({ _id: new ObjectId(uid) });
+    if (!user) return res.status(404).json({ message: 'user not found' });
+
+    // 새 토큰 발급 (새 session 생성은 signRefresh 내부에서 처리)
+    const accessToken = signAccess(user);
+    const newRefresh = await signRefresh(user, db, { ip: req.ip, userAgent: req.get('User-Agent') });
+
+    return res.json({ accessToken, refreshToken: newRefresh });
+  } catch (err) {
+    console.error('refreshToken failed:', err);
+    return res.status(500).json({ message: 'server error' });
+  }
 }
 
 
@@ -265,7 +315,7 @@ exports.devLogin = async (req, res) => {
       }
   
       const accessToken = signAccess(user);
-      const refreshToken = signRefresh(user);
+      const refreshToken = await signRefresh(user, req.app.locals.db, { ip: req.ip, userAgent: req.get('User-Agent') });
       return res.status(200).json({
         status: 'login',
         accessToken,
@@ -278,8 +328,22 @@ exports.devLogin = async (req, res) => {
     }
   };
 
-exports.logout = async (req,res) => {
-    return res.status(200).json({ message: '로그아웃 되었습니다.' });
-}
+  exports.logout = async (req, res) => {
+    try {
+      const db = req.app.locals.db;
+      const { refreshToken } = req.body;
+      if (!refreshToken) return res.status(400).json({ message: 'refreshToken required' });
+  
+      let payload;
+      try { payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET); }
+      catch { return res.status(400).json({ message: 'invalid refresh token' }); }
+  
+      await db.collection('sessions').updateOne({ jti: payload.jti }, { $set: { revokedAt: new Date() }});
+      return res.json({ message: 'logged out' });
+    } catch (err) {
+      console.error('logout failed:', err);
+      return res.status(500).json({ message: 'server error' });
+    }
+  };
 
 
