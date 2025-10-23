@@ -91,6 +91,7 @@ exports.createDiary = async (req, res) => {
       userId: new ObjectId(userId),
       text: diaryText,
       persona,
+      emotion,
       // DB에는 key만 저장(권장). 필요 시 조회 API에서 presigned 발급
       images: imageKeys, // [{key, createdAt}]
       sources: records.map(r => ({
@@ -110,6 +111,7 @@ exports.createDiary = async (req, res) => {
         id: result.insertedId.toString(),
         text: diaryText,
         persona,
+        emotion,
         date,
         createdAt: now,
         // 미리보기 편의용 presigned URL 목록
@@ -131,7 +133,7 @@ exports.getDiary = async (req, res) => {
     const payload = jwt.verify(authHeader.split(' ')[1], process.env.JWT_ACCESS_SECRET);
     const userId = payload.uid;
 
-    const { id } = req.params;
+    const { id } = req.body;
     const diary = await db.collection('diaries').findOne({ _id: new ObjectId(id), userId: new ObjectId(userId) });
     if (!diary) return res.status(404).json({ message: 'diary not found' });
 
@@ -139,6 +141,8 @@ exports.getDiary = async (req, res) => {
       id: diary._id.toString(),
       text: diary.text,
       persona: diary.persona,
+      emotion: diary.emotion ?? null,   
+      date: diary.date ?? null,
       createdAt: diary.createdAt,
       updatedAt: diary.updatedAt,
       sources: diary.sources?.map(s => ({ recordId: s.recordId.toString(), type: s.type, createdAt: s.createdAt })) ?? [],
@@ -293,3 +297,65 @@ exports.listDiaries = async (req, res) => {
 //     return res.status(500).json({ message: 'server error' });
 //   }
 // };
+
+
+exports.updateDiary = async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+
+    // 인증
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization Bearer token required' });
+    }
+    const { uid: userId } = jwt.verify(
+      authHeader.split(' ')[1],
+      process.env.JWT_ACCESS_SECRET
+    );
+
+    // 입력
+    const { id, text, persona, emotion, images } = req.body || {};
+    if (!id) return res.status(400).json({ message: 'diary id is required' });
+
+    // 다이어리 조회 + 권한
+    const diary = await db.collection('diaries').findOne({
+      _id: new ObjectId(id),
+      userId: new ObjectId(userId),
+    });
+    if (!diary) return res.status(404).json({ message: 'diary not found' });
+
+    // 업데이트 필드 구성(전달된 것만 반영)
+    const set = {};
+    if (typeof text === 'string') set.text = text.trim();
+    if (typeof persona === 'number') set.persona = persona;
+    if (typeof emotion === 'string') set.emotion = emotion;
+
+    // images: [{key, createdAt}] 형태로 교체 저장
+    if (Array.isArray(images)) {
+      const sanitized = images
+        .filter(it => it && typeof it.key === 'string')
+        .map(it => ({
+          key: it.key,
+          createdAt: it.createdAt ? new Date(it.createdAt) : new Date(),
+        }));
+      set.images = sanitized;
+    }
+
+    if (Object.keys(set).length === 0) {
+      return res.status(400).json({ message: 'no fields to update' });
+    }
+
+    set.updatedAt = new Date();
+
+    await db.collection('diaries').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: set }
+    );
+
+    // 응답(필요 시 최신 문서 다시 읽어도 됨)
+    return res.status(200).json({ message: 'diary updated' });
+  } catch (err) {
+    console.error('updateDiary failed:', err);
+    return res.status(500).json({ message: 'server error' });
+  }
+};
