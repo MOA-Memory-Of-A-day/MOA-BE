@@ -180,20 +180,16 @@ exports.getDiary = async (req, res) => {
     }
 
     return res.status(200).json({
-      id: diary._id.toString(),
-      text: diary.text,
-      persona: diary.persona,
-      emotion: diary.emotion ?? null,
-      date: diary.date ?? null,
-      createdAt: diary.createdAt,
-      updatedAt: diary.updatedAt,
-      images,
-      sources:
-        diary.sources?.map(s => ({
-          recordId: s.recordId.toString(),
-          type: s.type,
-          createdAt: s.createdAt,
-        })) ?? [],
+      diary : {
+        id: diary._id.toString(),
+        text: diary.text,
+        persona: diary.persona,
+        emotion: diary.emotion ?? null,
+        date: diary.date ?? null,
+        createdAt: diary.createdAt,
+        updatedAt: diary.updatedAt,
+        images,
+      }
     });
   } catch (err) {
     console.error('getDiary failed:', err);
@@ -301,7 +297,7 @@ exports.updateDiary = async (req, res) => {
     const set = {};
     if (typeof text === 'string') set.text = text.trim();
     if (typeof persona === 'number') set.persona = persona;
-    if (emotion !== undefined && emotion !== null) set.emotion = emotion;
+    if (typeof emotion === 'string') set.emotion = emotion;
 
     if (Array.isArray(images)) {
       const sanitized = images
