@@ -151,6 +151,8 @@ function kstDayRange(dateStr) {
 //   }
 // };
 
+// controllers/diaryController.js (createDiary만 교체)
+
 exports.createDiary = async (req, res) => {
   try {
     const db = req.app.locals.db;
@@ -177,14 +179,42 @@ exports.createDiary = async (req, res) => {
       return res.status(404).json({ message: 'no records for the specified date' });
     }
 
-    const aiItems = await toAIPayload(records);
+    // ✅ AI에 보낼 items 구성 (텍스트/이미지/텍스트+이미지만 처리)
+    const items = await Promise.all(records.map(async (r) => {
+      const context = r.context ?? '';
 
+      // image / text+image → presigned URL을 path에
+      if ((r.type === 'image' || r.type === 'text+image') && r.media?.key) {
+        const url = await getSignedReadUrl(r.media.key);
+        if (r.type === 'text+image') {
+          return { type: 'text+image', content: context, path: url };
+        }
+        return { type: 'image', path: url };
+      }
+
+      // text만
+      return { type: 'text', content: context };
+    }));
+
+    // 내용 방어: 텍스트 내용 있거나(공백 제외) / path 있는 이미지 항목이 하나라도 있어야 함
+    const hasContent = items.some(it =>
+      (it.type === 'text' && it.content && it.content.trim().length > 0) ||
+      (it.path && typeof it.path === 'string' && it.path.length > 0)
+    );
+    if (!hasContent) {
+      return res.status(400).json({ message: 'no valid items to send to AI' });
+    }
+
+    // ✅ AI_URL 정규화 (뒷슬래시 제거)
+    const base = (AI_URL || '').replace(/\/+$/, '');
+
+    // ✅ AI 호출 (타임아웃 150초)
     let aiResp;
     try {
       aiResp = await axios.post(
-        `${AI_URL}/diary/generate`,
-        { items: aiItems, persona },
-        { timeout: 60_000 }
+        `${base}/diary/generate`,
+        { items, persona },
+        { timeout: 150_000 }
       );
     } catch (e) {
       const detail = e?.response?.data || e?.message || e;
@@ -197,6 +227,7 @@ exports.createDiary = async (req, res) => {
       return res.status(502).json({ message: 'AI empty response' });
     }
 
+    // 미리보기용 presigned, DB 저장용 key
     const imagePresigned = [];
     const imageKeys = [];
     for (const r of records) {
@@ -208,7 +239,6 @@ exports.createDiary = async (req, res) => {
     }
 
     const emotion = null;
-
     const now = new Date();
     const diaryDoc = {
       userId: new ObjectId(userId),
@@ -225,6 +255,7 @@ exports.createDiary = async (req, res) => {
       updatedAt: now,
       date,
     };
+
     const result = await db.collection('diaries').insertOne(diaryDoc);
 
     return res.status(201).json({
