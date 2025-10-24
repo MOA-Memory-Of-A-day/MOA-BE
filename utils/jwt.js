@@ -13,7 +13,7 @@ function signAccess(user) {
       providerID: user.providerID,
     },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: "15m" }
+    { expiresIn: "10h" }
   );
 }
 
