@@ -104,8 +104,8 @@ exports.createDiary = async (req, res) => {
     for (const r of records) {
       if (r.media?.type === 'image' && r.media?.key) {
         const url = await getSignedReadUrl(r.media.key);
-        imagePresigned.push({ url, createdAt: r.createdAt });
-        imageKeys.push({ key: r.media.key, createdAt: r.createdAt });
+        imagePresigned.push({ url });
+        imageKeys.push({ key: r.media.key });
       }
     }
 
